@@ -1,0 +1,6 @@
+{
+  "name": "Block & Boulevard",
+  "description": "An original Indonesian archipelago property-trading board game inspired by LINE Let's Get Rich. Features full 3D tabletop diorama with Monas, Joglo roofs, dice gauge charging, character cards, and instant monopoly win conditions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
