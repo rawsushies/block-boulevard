@@ -1,4 +1,4 @@
-import { BOARD_TILES, DISTRICTS, HOLDING_BAIL_COST } from './boardData';
+import { BOARD_TILES, CHARACTER_CARD_CATALOG, DISTRICTS, HOLDING_BAIL_COST } from './boardData';
 import {
   applyEventCardAction,
   buyPropertyAction,
@@ -205,3 +205,108 @@ export function stepAITurn(state: GameState): GameState {
       return state;
   }
 }
+
+export interface AIDeliberationPlan {
+  powerRatio: number;
+  targetZone: number;
+  targetTileIndex: number;
+  targetTileName: string;
+  thought: string;
+  isDiceControl: boolean;
+}
+
+/**
+ * Plans the AI's dice roll: chooses target zone, calculates best landing tile,
+ * and composes an authentic Let's Get Rich tactical deliberation thought.
+ */
+export function planAIRollDeliberation(state: GameState): AIDeliberationPlan {
+  const player = state.players[state.currentPlayerIndex];
+  if (!player) {
+    return {
+      powerRatio: 0.5,
+      targetZone: 3,
+      targetTileIndex: 0,
+      targetTileName: 'Papan',
+      thought: 'Mempersiapkan lemparan dadu...',
+      isDiceControl: false,
+    };
+  }
+
+  const currentPos = player.position;
+  const card = CHARACTER_CARD_CATALOG.find((c) => c.id === player.cardId);
+  const dcRate = card?.diceControl ?? 75;
+
+  // Four dice gauge power zones:
+  // Zone 1: sum 2-4 (powerRatio ~0.18)
+  // Zone 2: sum 5-7 (powerRatio ~0.42)
+  // Zone 3: sum 8-9 (powerRatio ~0.66)
+  // Zone 4: sum 10-12 (powerRatio ~0.88)
+  const zoneProfiles = [
+    { zone: 1, ratio: 0.18, typicalSum: 3 },
+    { zone: 2, ratio: 0.42, typicalSum: 6 },
+    { zone: 3, ratio: 0.66, typicalSum: 8 },
+    { zone: 4, ratio: 0.88, typicalSum: 11 },
+  ];
+
+  let bestZone = zoneProfiles[2];
+  let bestScore = -9999;
+  let targetTile = BOARD_TILES[(currentPos + bestZone.typicalSum) % 32];
+
+  for (const zp of zoneProfiles) {
+    const landingIdx = (currentPos + zp.typicalSum) % 32;
+    const tile = BOARD_TILES[landingIdx];
+    const prop = state.properties[landingIdx];
+    let score = 0;
+
+    if (tile.type === 'PROPERTY' && tile.district) {
+      if (!prop?.ownerId) {
+        score += 60;
+        const distTiles = DISTRICTS[tile.district].tileIndices;
+        const ownedBySelf = distTiles.filter(
+          (t) => state.properties[t]?.ownerId === player.id
+        ).length;
+        if (ownedBySelf === 2) score += 200; // Immediate district completion priority!
+      } else if (prop.ownerId === player.id) {
+        score += 25; // Safe landing
+      } else {
+        score -= 75; // Avoid rival toll
+      }
+    } else if (tile.type === 'START') {
+      score += 50; // Bonus salary
+    } else if (tile.type === 'GO_TO_HOLDING') {
+      score -= 150; // Danger
+    } else if (tile.type === 'HOLDING') {
+      score -= 20;
+    } else if (tile.type === 'TRANSPORT') {
+      if (!prop?.ownerId) score += 55;
+      else if (prop.ownerId !== player.id) score -= 40;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestZone = zp;
+      targetTile = tile;
+    }
+  }
+
+  let thought = '';
+  if (player.inHolding) {
+    thought = `${player.name} mencoba peruntungan melempar Dadu Kembar untuk keluar dari Pulau Terisolasi!`;
+  } else if (targetTile.type === 'PROPERTY' && !state.properties[targetTile.index]?.ownerId) {
+    thought = `${player.name} membidik ${targetTile.name} (Zona ${bestZone.zone}) untuk memperluas monopoli!`;
+  } else if (bestScore < 0) {
+    thought = `${player.name} mengisi tenaga dadu ke Zona ${bestZone.zone} untuk menghindari petak sewa lawan!`;
+  } else {
+    thought = `${player.name} membidik Zona ${bestZone.zone} (Dadu target) dengan Akurasi Dadu Kontrol ${dcRate}%!`;
+  }
+
+  return {
+    powerRatio: bestZone.ratio,
+    targetZone: bestZone.zone,
+    targetTileIndex: targetTile.index,
+    targetTileName: targetTile.name,
+    thought,
+    isDiceControl: Math.random() * 100 < dcRate,
+  };
+}
+

@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   BOARD_TILES,
+  CHARACTER_CARD_CATALOG,
   DISTRICTS,
   HOLDING_BAIL_COST,
   formatRupiah,
@@ -20,13 +21,26 @@ import {
   DevelopmentBadgeSVG,
   DiceFaceSVG,
   PlayerTokenSVG,
+  TierBadgeSVG,
   TileCategorySVG,
 } from './GameTokensSVG';
+
+export interface AIThinkingState {
+  active: boolean;
+  playerId: string;
+  playerName: string;
+  cardId: string;
+  thought: string;
+  powerRatio: number;
+  targetZone?: number;
+  phase: 'pondering' | 'charging' | 'releasing';
+}
 
 interface BoardGrid2DProps {
   gameState: GameState;
   isRollingAnim: boolean;
   show3DView: boolean;
+  aiThinking?: AIThinkingState | null;
   onToggle3DView: () => void;
   onSelectTile: (index: number) => void;
   onRollDice: (powerRatio?: number) => void;
@@ -44,6 +58,7 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
   gameState,
   isRollingAnim,
   show3DView,
+  aiThinking,
   onToggle3DView,
   onSelectTile,
   onRollDice,
@@ -59,6 +74,9 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
   const currentPlayer = gameState.players[gameState.currentPlayerIndex];
   const isHumanTurn = currentPlayer && !currentPlayer.isAI && !currentPlayer.isBankrupt;
   const currentTile = BOARD_TILES[ currentPlayer?.position ?? 0 ];
+  const activeCard = currentPlayer
+    ? CHARACTER_CARD_CATALOG.find((c) => c.id === currentPlayer.cardId)
+    : null;
 
   // Find upgradeable properties for the current player to offer quick build buttons
   const upgradeableTiles = BOARD_TILES.filter(
@@ -104,8 +122,8 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
               onClick={() => onSelectTile(tile.index)}
               style={{ gridRow: row, gridColumn: col }}
               aria-label={`Tile ${tile.index}: ${tile.name}${
-                tile.purchasePrice ? `, Price ${tile.purchasePrice} credits` : ''
-              }${owner ? `, Owned by ${owner.name}` : ''}`}
+                tile.purchasePrice ? `, Harga ${formatRupiah(tile.purchasePrice)}` : ''
+              }${owner ? `, Milik ${owner.name}` : ''}`}
               className={`group relative flex flex-col justify-between overflow-hidden rounded-md text-left transition-transform duration-150 focus-visible:outline-2 focus-visible:outline-amber-400 ${
                 side === 'corner'
                   ? 'bg-[#EAE4D3] text-[#0F172A] border border-amber-500/50'
@@ -161,9 +179,13 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
                       : owner.name.slice(0, 5)}
                   </span>
                 ) : tile.purchasePrice ? (
-                  <span className="mx-auto">{tile.purchasePrice}c</span>
+                  <span className="mx-auto text-[7px] sm:text-[8px] font-bold text-slate-800">
+                    {formatRupiah(tile.purchasePrice)}
+                  </span>
                 ) : tile.feeAmount ? (
-                  <span className="mx-auto text-rose-700">-{tile.feeAmount}c</span>
+                  <span className="mx-auto text-[7px] sm:text-[8px] font-bold text-rose-700">
+                    -{formatRupiah(tile.feeAmount)}
+                  </span>
                 ) : (
                   <span className="mx-auto text-slate-500">#{tile.index}</span>
                 )}
@@ -291,13 +313,76 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
 
               {/* Phase-Specific Controls */}
               {!isHumanTurn ? (
-                <div className="max-w-xs w-full bg-[#0F172A]/95 border border-slate-800 rounded-lg p-3 shadow-lg">
-                  <p className="text-xs sm:text-sm font-semibold text-amber-300">
-                    {currentPlayer?.name} is making a move...
-                  </p>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    {gameState.logs[0]?.message}
-                  </p>
+                <div className="max-w-xs sm:max-w-sm w-full bg-[#0F172A]/95 border-2 border-amber-500/50 rounded-xl p-3 shadow-2xl backdrop-blur-md">
+                  {/* Top Character Header with Tier & Avatar */}
+                  <div className="flex items-center gap-2.5 pb-2 border-b border-slate-800">
+                    <div className="relative p-0.5 rounded-xl bg-gradient-to-b from-amber-300 via-amber-500 to-yellow-600 border border-yellow-200">
+                      <PlayerTokenSVG
+                        cardId={currentPlayer?.cardId}
+                        token={currentPlayer?.token}
+                        color={currentPlayer?.color}
+                        size={32}
+                      />
+                    </div>
+                    <div className="text-left min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="font-bold text-xs sm:text-sm text-yellow-300 truncate">
+                          {currentPlayer?.name}
+                        </span>
+                        {activeCard && <TierBadgeSVG tier={activeCard.tier} />}
+                      </div>
+                      <div className="text-[10px] text-slate-400">
+                        {activeCard?.title ?? 'Ksatria Papan'} · DC {activeCard?.diceControl ?? 80}%
+                      </div>
+                    </div>
+                    <div className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-400/40 text-[10px] font-mono text-amber-300">
+                      {aiThinking?.phase === 'charging'
+                        ? '⚡ MENGISI DAYA'
+                        : aiThinking?.phase === 'releasing'
+                        ? '🎯 MELEMPAR!'
+                        : '🤔 BERPIKIR'}
+                    </div>
+                  </div>
+
+                  {/* Speech Bubble / Thought */}
+                  <div className="relative mt-2.5 px-3 py-2 bg-slate-900/90 rounded-lg border border-slate-700 text-left">
+                    <div className="absolute -top-1.5 left-4 w-2.5 h-2.5 bg-slate-900 border-t border-l border-slate-700 rotate-45" />
+                    <p className="text-xs text-slate-200 leading-relaxed font-medium">
+                      {aiThinking?.thought || gameState.logs[0]?.message || 'Menyiapkan strategi petak nusantara...'}
+                    </p>
+                  </div>
+
+                  {/* Simulated Dice Power Gauge (Active during charging or releasing) */}
+                  {(aiThinking?.phase === 'charging' || aiThinking?.phase === 'releasing') && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-800 text-left">
+                      <div className="flex items-center justify-between text-[10px] font-semibold text-slate-400 mb-1">
+                        <span>TENAGA DADU AI</span>
+                        <span className="text-amber-300 font-mono">
+                          Target Zona {aiThinking.targetZone ?? 3} ({Math.round(aiThinking.powerRatio * 100)}%)
+                        </span>
+                      </div>
+                      <div className="relative h-4 rounded-full bg-slate-950 overflow-hidden border border-slate-700 p-0.5">
+                        {/* 4 Gauge Zones */}
+                        <div className="absolute inset-0 grid grid-cols-4 pointer-events-none opacity-30">
+                          <div className="bg-emerald-500 border-r border-slate-900" />
+                          <div className="bg-sky-500 border-r border-slate-900" />
+                          <div className="bg-purple-500 border-r border-slate-900" />
+                          <div className="bg-amber-500" />
+                        </div>
+                        {/* Active Progress Needle */}
+                        <div
+                          className="h-full rounded-full bg-gradient-to-r from-emerald-400 via-sky-400 to-amber-400 transition-all duration-75 shadow-md shadow-amber-400/50"
+                          style={{ width: `${Math.max(5, aiThinking.powerRatio * 100)}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-[8px] font-mono text-slate-400 mt-1 px-1">
+                        <span>Z1 (2-4)</span>
+                        <span>Z2 (5-7)</span>
+                        <span>Z3 (8-9)</span>
+                        <span>Z4 (10-12)</span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>
@@ -393,17 +478,17 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
                   {gameState.turnPhase === 'DEBT_RESOLUTION' && gameState.pendingDebt && (
                     <div className="w-full max-w-sm bg-rose-950/90 border-2 border-rose-500 rounded-xl p-3 text-left shadow-xl">
                       <h3 className="text-sm font-bold text-rose-200">
-                        Insufficient Funds: {gameState.pendingDebt.amount}c Required
+                        Hutang Tertunggak: {formatRupiah(gameState.pendingDebt.amount)}
                       </h3>
                       <p className="text-xs text-rose-100/90 mt-1">
-                        You have <strong>{currentPlayer.money}c</strong> and owe{' '}
-                        <strong>{gameState.pendingDebt.amount}c</strong> for{' '}
+                        Saldo Anda <strong>{formatRupiah(currentPlayer.money)}</strong> dan berutang{' '}
+                        <strong>{formatRupiah(gameState.pendingDebt.amount)}</strong> untuk{' '}
                         {gameState.pendingDebt.reason}.
                       </p>
                       {sellableTiles.length > 0 ? (
                         <div className="mt-2 space-y-1">
                           <p className="text-[11px] font-semibold text-amber-300">
-                            Sell developments (50% refund) to raise cash:
+                            Jual pengembangan properti (pengembalian 50%) untuk menutup hutang:
                           </p>
                           <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto">
                             {sellableTiles.map((t) => {
@@ -415,7 +500,7 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
                                   onClick={() => onSellDevelopment(t.index)}
                                   className="px-2 py-1 rounded bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-[11px] cursor-pointer"
                                 >
-                                  Sell on {t.shortName} (+{check.refund}c)
+                                  Jual di {t.shortName} (+{formatRupiah(check.refund)})
                                 </button>
                               );
                             })}
@@ -423,7 +508,7 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
                         </div>
                       ) : (
                         <p className="text-[11px] text-rose-300 mt-1.5">
-                          You have no built developments left to liquidate.
+                          Anda tidak memiliki bangunan tersisa yang dapat dijual.
                         </p>
                       )}
                       <button
@@ -431,7 +516,7 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
                         onClick={onDeclareBankruptcy}
                         className="mt-2.5 w-full py-2 px-4 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs cursor-pointer"
                       >
-                        DECLARE BANKRUPTCY
+                        NYATAKAN BANGKRUT
                       </button>
                     </div>
                   )}
@@ -443,14 +528,14 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
                       {upgradeableTiles.length > 0 && (
                         <div className="w-full bg-[#0F172A]/95 border border-teal-500/40 rounded-lg p-2 text-left">
                           <div className="text-[10px] uppercase tracking-wider text-teal-300 font-semibold mb-1">
-                            Develop Completed Districts
+                            Bangun Distrik Lengkap
                           </div>
                           <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto">
                             {upgradeableTiles.map((t) => {
                               const check = canUpgradeProperty(gameState, currentPlayer.id, t.index);
                               const nextLvl =
                                 getEffectiveDevelopmentLevel(gameState.properties, t.index) === 1
-                                  ? 'Business'
+                                  ? 'Paviliun'
                                   : 'Landmark';
                               return (
                                 <button
@@ -459,7 +544,7 @@ export const BoardGrid2D: React.FC<BoardGrid2DProps> = ({
                                   onClick={() => onUpgradeProperty(t.index)}
                                   className="px-2 py-1 rounded bg-teal-500/20 hover:bg-teal-500/35 border border-teal-400/50 text-teal-200 text-[11px] font-medium transition-colors cursor-pointer"
                                 >
-                                  + {t.shortName} ({nextLvl} · {check.cost}c)
+                                  + {t.shortName} ({nextLvl} · {formatRupiah(check.cost)})
                                 </button>
                               );
                             })}
@@ -520,34 +605,35 @@ const BuyOrPassCard: React.FC<{
         <span className="text-[10px] font-bold uppercase tracking-wider text-white">
           {district ? district.name : tile.type}
         </span>
-        <span className="text-xs font-mono-num font-bold text-white">Price: {price}c</span>
+        <span className="text-xs font-mono font-bold text-white">
+          Harga: {formatRupiah(price)}
+        </span>
       </div>
       <div className="p-3">
         <div className="flex items-baseline justify-between">
           <h3 className="text-sm sm:text-base font-bold text-[#F4F1EA]">{tile.name}</h3>
-          <span className="text-xs font-mono-num text-teal-300">
-            Base Rent: {tile.baseRent ?? '4× Dice'}
-            {tile.baseRent ? 'c' : ''}
+          <span className="text-xs font-mono text-teal-300">
+            Sewa: {tile.baseRent ? formatRupiah(tile.baseRent) : '4× Dadu'}
           </span>
         </div>
 
         {tile.rentTiers && tile.type === 'PROPERTY' && (
-          <div className="grid grid-cols-4 gap-1 mt-2 text-center bg-slate-900/90 p-1.5 rounded border border-slate-800 text-[10px] font-mono-num">
+          <div className="grid grid-cols-4 gap-1 mt-2 text-center bg-slate-900/90 p-1.5 rounded border border-slate-800 text-[10px] font-mono">
             <div>
-              <div className="text-slate-400">Lot</div>
-              <div className="font-bold text-slate-200">{tile.rentTiers[0]}c</div>
+              <div className="text-slate-400">Dasar</div>
+              <div className="font-bold text-slate-200">{formatRupiah(tile.rentTiers[0])}</div>
             </div>
             <div>
-              <div className="text-amber-300">District</div>
-              <div className="font-bold text-amber-300">{tile.rentTiers[1]}c</div>
+              <div className="text-amber-300">Distrik</div>
+              <div className="font-bold text-amber-300">{formatRupiah(tile.rentTiers[1])}</div>
             </div>
             <div>
-              <div className="text-teal-300">Business</div>
-              <div className="font-bold text-teal-300">{tile.rentTiers[2]}c</div>
+              <div className="text-teal-300">Paviliun</div>
+              <div className="font-bold text-teal-300">{formatRupiah(tile.rentTiers[2])}</div>
             </div>
             <div>
               <div className="text-yellow-300">Landmark</div>
-              <div className="font-bold text-yellow-300">{tile.rentTiers[3]}c</div>
+              <div className="font-bold text-yellow-300">{formatRupiah(tile.rentTiers[3])}</div>
             </div>
           </div>
         )}
@@ -559,14 +645,14 @@ const BuyOrPassCard: React.FC<{
             onClick={onBuy}
             className="flex-1 py-2 px-3 rounded-lg bg-teal-500 hover:bg-teal-400 disabled:opacity-40 text-slate-950 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
           >
-            {canAfford ? `BUY (${price}c)` : `NEED ${price}c`}
+            {canAfford ? `BELI (${formatRupiah(price)})` : `DANA KURANG (${formatRupiah(price)})`}
           </button>
           <button
             type="button"
             onClick={onPass}
             className="py-2 px-4 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs sm:text-sm border border-slate-700 transition-colors cursor-pointer"
           >
-            PASS
+            LEWATI
           </button>
         </div>
       </div>

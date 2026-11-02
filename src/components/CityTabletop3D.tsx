@@ -2,7 +2,8 @@ import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
-import { BOARD_TILES, DISTRICTS, getTileGridPosition } from '../game/boardData';
+import { createTileDecalTexture, loadGameTexture, TEXTURE_URLS } from '../assets/textures';
+import { BOARD_TILES, DISTRICTS, formatRupiah, getTileGridPosition } from '../game/boardData';
 import { getEffectiveDevelopmentLevel } from '../game/engine';
 import { GameState } from '../game/types';
 
@@ -283,8 +284,14 @@ function buildCenterMonasMonument(): THREE.Group {
     metalness: 0.2,
   });
 
-  // 1. Medan Merdeka Plaza Park (Grass Base)
-  const plazaGrass = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.14, 6.8), grassMat);
+  // 1. Medan Merdeka Plaza Park (High-res textured base with generated Monas Park aerial art)
+  const monasTexture = loadGameTexture(TEXTURE_URLS.monasPlaza);
+  const plazaGrassMat = new THREE.MeshStandardMaterial({
+    map: monasTexture,
+    roughness: 0.35,
+    metalness: 0.1,
+  });
+  const plazaGrass = new THREE.Mesh(new THREE.BoxGeometry(6.8, 0.14, 6.8), plazaGrassMat);
   plazaGrass.position.y = 0.07;
   monument.add(plazaGrass);
 
@@ -455,25 +462,27 @@ export const CityTabletop3D: React.FC<CityTabletop3DProps> = ({
     const boardGroup = new THREE.Group();
     scene.add(boardGroup);
 
-    // Tropical Archipelago Water Base
+    // Tropical Archipelago Water Base with live sun caustics
+    const seaTexture = loadGameTexture(TEXTURE_URLS.tropicalSea, { repeatX: 4, repeatY: 4 });
     const seaBase = new THREE.Mesh(
-      new THREE.BoxGeometry(13.2, 0.35, 13.2),
+      new THREE.BoxGeometry(13.6, 0.35, 13.6),
       new THREE.MeshStandardMaterial({
-        color: 0x0369a1, // Tropical sea blue
+        map: seaTexture,
         roughness: 0.15,
-        metalness: 0.6,
+        metalness: 0.45,
       })
     );
     seaBase.position.y = -0.18;
     boardGroup.add(seaBase);
 
-    // Gold / Teak Board Frame
+    // Royal Indonesian Batik Gold Rim
+    const batikTexture = loadGameTexture(TEXTURE_URLS.batikGold, { repeatX: 6, repeatY: 1 });
     const boardRim = new THREE.Mesh(
-      new THREE.BoxGeometry(12.4, 0.14, 12.4),
+      new THREE.BoxGeometry(12.45, 0.16, 12.45),
       new THREE.MeshStandardMaterial({
-        color: 0xb45309,
-        roughness: 0.35,
-        metalness: 0.7,
+        map: batikTexture,
+        roughness: 0.25,
+        metalness: 0.8,
       })
     );
     boardRim.position.y = -0.12;
@@ -483,25 +492,28 @@ export const CityTabletop3D: React.FC<CityTabletop3DProps> = ({
     const centerMonas = buildCenterMonasMonument();
     boardGroup.add(centerMonas);
 
-    // 32 Interactive Tiles
+    // 32 Interactive Tiles with Glossy Marble Texture
+    const marbleTexture = loadGameTexture(TEXTURE_URLS.marbleTile);
     const tileMeshes: THREE.Mesh[] = [];
     const tileBaseGeo = new THREE.BoxGeometry(1.16, 0.14, 1.16);
     const headerGeo = new THREE.BoxGeometry(1.12, 0.05, 0.28);
 
     const cornerMat = new THREE.MeshStandardMaterial({
-      color: 0xfef3c7,
-      roughness: 0.35,
-      metalness: 0.2,
+      map: marbleTexture,
+      color: 0xfffbeb,
+      roughness: 0.15,
+      metalness: 0.35,
     });
     const propertyTileMat = new THREE.MeshStandardMaterial({
-      color: 0xf8fafc,
-      roughness: 0.45,
-      metalness: 0.1,
+      map: marbleTexture,
+      roughness: 0.18,
+      metalness: 0.25,
     });
     const specialTileMat = new THREE.MeshStandardMaterial({
-      color: 0xe0f2fe,
-      roughness: 0.4,
-      metalness: 0.15,
+      map: marbleTexture,
+      color: 0xf0fdfa,
+      roughness: 0.2,
+      metalness: 0.25,
     });
 
     BOARD_TILES.forEach((tile) => {
@@ -521,6 +533,42 @@ export const CityTabletop3D: React.FC<CityTabletop3DProps> = ({
       tileMesh.userData = { tileIndex: tile.index };
       tileMeshes.push(tileMesh);
       boardGroup.add(tileMesh);
+
+      // Top decal plate with district color, city name, and Indonesian Rupiah price
+      const districtColor =
+        tile.district && DISTRICTS[tile.district]
+          ? DISTRICTS[tile.district].color
+          : isCorner
+          ? '#F59E0B'
+          : '#0284C7';
+      const priceText = tile.purchasePrice
+        ? formatRupiah(tile.purchasePrice)
+        : tile.type === 'START'
+        ? 'BONUS GAJI'
+        : tile.type === 'HOLDING'
+        ? 'PULAU ASING'
+        : tile.type === 'PLAZA'
+        ? 'ALUN-ALUN'
+        : tile.type === 'GO_TO_HOLDING'
+        ? 'KEJAKSAAN'
+        : tile.type === 'TRANSPORT'
+        ? 'BANDARA'
+        : tile.type === 'SERVICE'
+        ? 'UTILITAS'
+        : tile.type === 'FEE'
+        ? 'RETRIBUSI'
+        : 'KESEMPATAN';
+
+      const decalTexture = createTileDecalTexture(tile.shortName, districtColor, priceText);
+      const decalMat = new THREE.MeshStandardMaterial({
+        map: decalTexture,
+        roughness: 0.25,
+        metalness: 0.1,
+      });
+      const decalMesh = new THREE.Mesh(new THREE.PlaneGeometry(1.06, 1.06), decalMat);
+      decalMesh.rotation.x = -Math.PI / 2;
+      decalMesh.position.set(wx, 0.143, wz);
+      boardGroup.add(decalMesh);
 
       if (tile.district && DISTRICTS[tile.district]) {
         const dColor = DISTRICTS[tile.district].color;
@@ -685,6 +733,10 @@ export const CityTabletop3D: React.FC<CityTabletop3DProps> = ({
       const dt = Math.min(Math.max(rawDt, 0.001), 0.05);
 
       syncSceneFromGameState();
+
+      // Animate tropical ocean caustics shimmer
+      seaTexture.offset.x = (now * 0.00003) % 1;
+      seaTexture.offset.y = (now * 0.000015) % 1;
 
       if (modeRef.current === 'title') {
         orbitAngle += dt * 0.22;

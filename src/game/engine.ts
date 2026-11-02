@@ -232,7 +232,7 @@ export function canUpgradeProperty(
   }
 
   if (player.money < cost) {
-    return { allowed: false, reason: `Insufficient funds (${cost} credits required).`, cost };
+    return { allowed: false, reason: `Dana tidak cukup (${formatRupiah(cost)} diperlukan).`, cost };
   }
 
   return { allowed: true, cost };
@@ -320,7 +320,7 @@ export function upgradePropertyAction(
     logs: [
       createLog(
         state.roundNumber,
-        `${currentPlayer.name} built a ${levelLabel} on ${tile.name} for ${check.cost} credits.`,
+        `${currentPlayer.name} membangun ${levelLabel === 'Business' ? 'Paviliun Joglo' : 'Landmark'} di ${tile.name} seharga ${formatRupiah(check.cost)}.`,
         'development',
         playerId
       ),
@@ -369,7 +369,7 @@ export function sellDevelopmentAction(
     logs: [
       createLog(
         state.roundNumber,
-        `${currentPlayer.name} sold a ${soldLabel} on ${tile.name} for ${check.refund} credits.`,
+        `${currentPlayer.name} menjual ${soldLabel === 'Business' ? 'Paviliun Joglo' : 'Landmark'} di ${tile.name} seharga ${formatRupiah(check.refund)}.`,
         'development',
         playerId
       ),
@@ -411,7 +411,7 @@ export function leaveHoldingBeforeRollAction(
       logs: [
         createLog(
           state.roundNumber,
-          `${player.name} used a Municipal Clearance Pass to leave Holding Yard.`,
+          `${player.name} menggunakan Tiket Bebas Pulau untuk melanjutkan perjalanan.`,
           'holding',
           player.id
         ),
@@ -434,7 +434,7 @@ export function leaveHoldingBeforeRollAction(
     logs: [
       createLog(
         state.roundNumber,
-        `${player.name} paid ${HOLDING_BAIL_COST} credits to clear Holding Yard inspection.`,
+        `${player.name} membayar retribusi ${formatRupiah(HOLDING_BAIL_COST)} untuk keluar dari Pulau Terisolasi.`,
         'holding',
         player.id
       ),
@@ -656,7 +656,7 @@ export function advanceMovementStepAction(state: GameState): GameState {
     ? [
         createLog(
           state.roundNumber,
-          `${player.name} collected ${CITY_HALL_BONUS} credits at City Hall!`,
+          `${player.name} menerima bonus ${formatRupiah(CITY_HALL_BONUS)} di Istana Merdeka!`,
           'system',
           player.id
         ),
@@ -791,7 +791,7 @@ export function resolveCurrentTile(state: GameState): GameState {
       baseState,
       null,
       fee,
-      `${tile.name} (${fee} credits)`,
+      `${tile.name} (${formatRupiah(fee)})`,
       'event'
     );
   }
@@ -830,8 +830,8 @@ function applyPaymentOrDebt(
     });
 
     const msg = creditor
-      ? `${payer.name} paid ${amount} credits in ${reason}.`
-      : `${payer.name} paid ${amount} credits for ${reason}.`;
+      ? `${payer.name} membayar ${formatRupiah(amount)} untuk ${reason}.`
+      : `${payer.name} membayar ${formatRupiah(amount)} untuk ${reason}.`;
 
     return {
       ...state,
@@ -854,7 +854,7 @@ function applyPaymentOrDebt(
     logs: [
       createLog(
         state.roundNumber,
-        `${payer.name} owes ${amount} credits for ${reason} but only has ${payer.money} credits!`,
+        `${payer.name} berutang ${formatRupiah(amount)} untuk ${reason} namun hanya memiliki saldo ${formatRupiah(payer.money)}!`,
         'bankruptcy',
         payer.id
       ),
@@ -911,7 +911,7 @@ export function buyPropertyAction(state: GameState): GameState {
   const logs: ActivityLogEntry[] = [
     createLog(
       state.roundNumber,
-      `${player.name} purchased ${tile.name} for ${price} credits.`,
+      `${player.name} membeli properti ${tile.name} seharga ${formatRupiah(price)}.`,
       'purchase',
       player.id
     ),
@@ -924,7 +924,7 @@ export function buyPropertyAction(state: GameState): GameState {
     logs.unshift(
       createLog(
         state.roundNumber,
-        `${player.name} completed the ${dInfo.name} district! Base rents doubled & building unlocked.`,
+        `${player.name} melengkapi distrik ${dInfo.name}! Biaya sewa dasar digandakan & izin pembangunan dibuka.`,
         'development',
         player.id
       )
@@ -1205,7 +1205,7 @@ export function applyEventCardAction(state: GameState): GameState {
         logs: [
           createLog(
             clearedCardState.roundNumber,
-            `${player.name} drew "${card.title}" and gained ${amount} credits.`,
+            `${player.name} menarik "${card.title}" dan memperoleh ${formatRupiah(amount)}.`,
             'event',
             player.id
           ),
@@ -1238,7 +1238,7 @@ export function applyEventCardAction(state: GameState): GameState {
         logs: [
           createLog(
             clearedCardState.roundNumber,
-            `${player.name} received a Municipal Clearance Pass ("${card.title}").`,
+            `${player.name} menerima Tiket Bebas Pulau ("${card.title}").`,
             'event',
             player.id
           ),
@@ -1263,7 +1263,7 @@ export function applyEventCardAction(state: GameState): GameState {
         logs: [
           createLog(
             clearedCardState.roundNumber,
-            `${player.name} drew "${card.title}" and was sent to Holding Yard!`,
+            `${player.name} menarik "${card.title}" dan dikirim ke Pulau Terisolasi!`,
             'holding',
             player.id
           ),
@@ -1282,7 +1282,7 @@ export function applyEventCardAction(state: GameState): GameState {
         logs: [
           createLog(
             clearedCardState.roundNumber,
-            `${player.name} drew "${card.title}" and moves ${steps > 0 ? `forward ${steps}` : `back ${Math.abs(steps)}`} spaces.`,
+            `${player.name} menarik "${card.title}" dan melangkah ${steps > 0 ? `maju ${steps}` : `mundur ${Math.abs(steps)}`} petak.`,
             'event',
             player.id
           ),
@@ -1302,7 +1302,7 @@ export function applyEventCardAction(state: GameState): GameState {
         logs: [
           createLog(
             clearedCardState.roundNumber,
-            `${player.name} drew "${card.title}" and advances to ${BOARD_TILES[target].name}.`,
+            `${player.name} menarik "${card.title}" dan terbang menuju ${BOARD_TILES[target].name}.`,
             'event',
             player.id
           ),
@@ -1330,7 +1330,7 @@ export function applyEventCardAction(state: GameState): GameState {
         logs: [
           createLog(
             clearedCardState.roundNumber,
-            `${player.name} drew "${card.title}" and collected ${totalCollected} credits from fellow developers.`,
+            `${player.name} menarik "${card.title}" dan mengumpulkan ${formatRupiah(totalCollected)} dari pemain lain.`,
             'event',
             player.id
           ),
@@ -1359,7 +1359,7 @@ export function applyEventCardAction(state: GameState): GameState {
           logs: [
             createLog(
               clearedCardState.roundNumber,
-              `${player.name} drew "${card.title}" and paid ${perPlayer} credits to each developer (${totalRequired} total).`,
+              `${player.name} menarik "${card.title}" dan membagikan ${formatRupiah(perPlayer)} ke tiap pemain (${formatRupiah(totalRequired)} total).`,
               'event',
               player.id
             ),
@@ -1372,7 +1372,7 @@ export function applyEventCardAction(state: GameState): GameState {
         clearedCardState,
         null,
         totalRequired,
-        `"${card.title}" (${perPlayer} credits per player)`,
+        `"${card.title}" (${formatRupiah(perPlayer)} per pemain)`,
         'event'
       );
     }
@@ -1550,8 +1550,8 @@ function finalizeMatch(state: GameState, explicitWinnerId?: string | null): Game
       createLog(
         state.roundNumber,
         winner
-          ? `Victory! ${winner.name} wins Block & Boulevard with a net worth of ${rankings[0]?.netWorth.toLocaleString()} credits!`
-          : 'Match complete!',
+          ? `Kemenangan! ${winner.name} memenangkan Block & Boulevard dengan total kekayaan ${formatRupiah(rankings[0]?.netWorth ?? 0)}!`
+          : 'Pertandingan Selesai!',
         'system',
         winnerId ?? undefined
       ),

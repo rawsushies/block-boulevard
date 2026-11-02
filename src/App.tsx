@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { BoardGrid2D } from './components/BoardGrid2D';
+import { AIThinkingState, BoardGrid2D } from './components/BoardGrid2D';
 import { CityTabletop3D } from './components/CityTabletop3D';
 import { BlockBoulevardEmblem, PlayerTokenSVG, TierBadgeSVG } from './components/GameTokensSVG';
 import {
@@ -11,7 +11,12 @@ import {
 } from './components/Modals';
 import { PlayerRosterPanel } from './components/PlayerRosterPanel';
 import { PropertyInspectorPanel } from './components/PropertyInspectorPanel';
-import { stepAITurn } from './game/ai';
+import {
+  planAIRollDeliberation,
+  shouldAIBuyProperty,
+  shouldAILeaveHolding,
+  stepAITurn,
+} from './game/ai';
 import { BOARD_TILES, CHARACTER_CARD_CATALOG, formatRupiah } from './game/boardData';
 import {
   advanceMovementStepAction,
@@ -177,28 +182,180 @@ export default function App() {
     return () => clearTimeout(timer);
   }, [screen, gameState.turnPhase, gameState.movementQueue.length]);
 
-  // AI Turn Execution Timer
+  const [aiThinking, setAiThinking] = useState<AIThinkingState | null>(null);
+
+  // AI Deliberation and Turn Management (Authentic 3-4s rhythm inspired by LINE Let's Get Rich)
   useEffect(() => {
-    if (screen !== 'playing') return;
+    if (screen !== 'playing') {
+      setAiThinking(null);
+      return;
+    }
     const activePlayer = gameState.players[gameState.currentPlayerIndex];
-    if (!activePlayer || !activePlayer.isAI || activePlayer.isBankrupt) return;
-    if (gameState.turnPhase === 'MOVING' || gameState.turnPhase === 'GAME_OVER') return;
+    if (!activePlayer || !activePlayer.isAI || activePlayer.isBankrupt) {
+      setAiThinking(null);
+      return;
+    }
+    if (gameState.turnPhase === 'MOVING' || gameState.turnPhase === 'GAME_OVER') {
+      setAiThinking(null);
+      return;
+    }
 
-    const delay =
-      gameState.turnPhase === 'WAITING_FOR_ROLL'
-        ? 750
-        : gameState.turnPhase === 'BUY_OR_PASS' || gameState.turnPhase === 'EVENT_DECISION'
-        ? 850
-        : 600;
+    // 1. WAITING_FOR_ROLL: 3.4s deliberation sequence with gauge windup
+    if (gameState.turnPhase === 'WAITING_FOR_ROLL') {
+      const plan = planAIRollDeliberation(gameState);
 
-    const timer = window.setTimeout(() => {
-      if (gameState.turnPhase === 'WAITING_FOR_ROLL') {
-        soundFX.playDiceRoll();
-      }
+      // Phase 1 (0 to 1200ms): Pondering / Evaluating board
+      setAiThinking({
+        active: true,
+        playerId: activePlayer.id,
+        playerName: activePlayer.name,
+        cardId: activePlayer.cardId,
+        thought: plan.thought,
+        powerRatio: 0,
+        targetZone: plan.targetZone,
+        phase: 'pondering',
+      });
+
+      let climbInterval: number | undefined;
+      let rollTimer: number | undefined;
+      let animTimer: number | undefined;
+
+      // Phase 2 (1200ms): Begin charging dice power gauge
+      const chargeTimer = window.setTimeout(() => {
+        soundFX.startGaugeCharge();
+        setAiThinking((prev) =>
+          prev
+            ? {
+                ...prev,
+                phase: 'charging',
+                thought: `Mengisi Tenaga Dadu... Target Zona ${plan.targetZone} (${plan.targetTileName})!`,
+              }
+            : null
+        );
+
+        const startTime = Date.now();
+        const duration = 1400;
+        climbInterval = window.setInterval(() => {
+          const elapsed = Date.now() - startTime;
+          const progress = Math.min(1, elapsed / duration);
+          const currentRatio = progress * plan.powerRatio;
+          setAiThinking((prev) => (prev ? { ...prev, powerRatio: currentRatio } : null));
+          if (progress >= 1 && climbInterval) {
+            clearInterval(climbInterval);
+          }
+        }, 40);
+
+        // Phase 3 (2600ms): Release gauge and roll!
+        const releaseTimer = window.setTimeout(() => {
+          if (climbInterval) clearInterval(climbInterval);
+          soundFX.playGaugeRelease(plan.isDiceControl);
+          setAiThinking((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  phase: 'releasing',
+                  powerRatio: plan.powerRatio,
+                  thought: plan.isDiceControl
+                    ? 'LEMPAR! Akurasi Dadu Kontrol Aktif!'
+                    : 'LEMPAR DADU!',
+                }
+              : null
+          );
+
+          // Phase 4 (3000ms): Execute roll in game engine
+          rollTimer = window.setTimeout(() => {
+            soundFX.playDiceRoll();
+            setIsRollingAnim(true);
+            animTimer = window.setTimeout(() => {
+              setIsRollingAnim(false);
+              setAiThinking(null);
+
+              let nextState = gameState;
+              if (activePlayer.inHolding) {
+                const decision = shouldAILeaveHolding(nextState);
+                if (decision.leave) {
+                  nextState = leaveHoldingBeforeRollAction(nextState, decision.useCard);
+                }
+              }
+              setGameState(rollDiceWithGaugeAction(nextState, plan.powerRatio));
+            }, 280);
+          }, 400);
+        }, 1400);
+
+        return () => {
+          if (climbInterval) clearInterval(climbInterval);
+          clearTimeout(releaseTimer);
+          if (rollTimer) clearTimeout(rollTimer);
+          if (animTimer) clearTimeout(animTimer);
+          soundFX.stopGaugeCharge();
+        };
+      }, 1200);
+
+      return () => {
+        clearTimeout(chargeTimer);
+        if (climbInterval) clearInterval(climbInterval);
+        if (rollTimer) clearTimeout(rollTimer);
+        if (animTimer) clearTimeout(animTimer);
+        soundFX.stopGaugeCharge();
+      };
+    }
+
+    // 2. BUY_OR_PASS: 1.8s decision delay
+    if (gameState.turnPhase === 'BUY_OR_PASS') {
+      const tile = BOARD_TILES[activePlayer.position];
+      const willBuy = shouldAIBuyProperty(gameState);
+      setAiThinking({
+        active: true,
+        playerId: activePlayer.id,
+        playerName: activePlayer.name,
+        cardId: activePlayer.cardId,
+        thought: `${activePlayer.name} mempertimbangkan pembelian ${tile?.name ?? 'properti'} (${formatRupiah(
+          tile?.purchasePrice ?? 0
+        )})...`,
+        powerRatio: 0,
+        phase: 'pondering',
+      });
+
+      const timer = window.setTimeout(() => {
+        setAiThinking(null);
+        if (willBuy) {
+          soundFX.playPurchase();
+          setGameState((prev) => buyPropertyAction(prev));
+        } else {
+          soundFX.playClick();
+          setGameState((prev) => passPropertyAction(prev));
+        }
+      }, 1800);
+
+      return () => clearTimeout(timer);
+    }
+
+    // 3. EVENT_DECISION: 1.5s delay
+    if (gameState.turnPhase === 'EVENT_DECISION') {
+      setAiThinking({
+        active: true,
+        playerId: activePlayer.id,
+        playerName: activePlayer.name,
+        cardId: activePlayer.cardId,
+        thought: `${activePlayer.name} membuka Kartu Kesempatan Takdir...`,
+        powerRatio: 0,
+        phase: 'pondering',
+      });
+      const timer = window.setTimeout(() => {
+        setAiThinking(null);
+        soundFX.playEventCard();
+        setGameState((prev) => applyEventCardAction(prev));
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+
+    // 4. MANAGING_PROPERTIES / EXTRA_ROLL / DEBT_RESOLUTION: 1.2s delay
+    const standardTimer = window.setTimeout(() => {
+      setAiThinking(null);
       setGameState((prev) => stepAITurn(prev));
-    }, delay);
+    }, 1200);
 
-    return () => clearTimeout(timer);
+    return () => clearTimeout(standardTimer);
   }, [
     screen,
     gameState.currentPlayerIndex,
@@ -559,6 +716,7 @@ export default function App() {
             gameState={gameState}
             isRollingAnim={isRollingAnim}
             show3DView={show3DView}
+            aiThinking={aiThinking}
             onToggle3DView={() => setShow3DView((prev) => !prev)}
             onSelectTile={handleSelectTile}
             onRollDice={handleRollDice}
